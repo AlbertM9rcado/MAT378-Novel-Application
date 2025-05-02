@@ -1,0 +1,91 @@
+# Colorizer.py
+# ==============================================================
+# Name: Albert Mercado
+# Date: April 29, 2025
+# Project: Final Project - CIFAR-10 Grayscale to Color (Airplanes Only)
+# Purpose: Use CNN to colorize grayscale airplane images (32x32)
+# ==============================================================
+ 
+import numpy as np
+import cv2
+import gradio as gr
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Conv2D
+from tensorflow.keras.datasets import cifar10
+ 
+# --------------------------------------------------------------
+# LOAD DATA
+# --------------------------------------------------------------
+# Load CIFAR-10 data
+(x_train, y_train), _ = cifar10.load_data()
+ 
+# Filter: only use airplane class (label 1)
+airplane_indices = (y_train.flatten() == 1)
+x_airplanes = x_train[airplane_indices]
+ 
+# Preprocess: convert to grayscale + normalize
+gray_images = np.array([cv2.cvtColor(img, cv2.COLOR_RGB2GRAY).reshape(32, 32, 1)
+                        for img in x_airplanes]) / 255.0
+color_images = x_airplanes / 255.0
+ 
+# --------------------------------------------------------------
+# BUILD MODEL
+# --------------------------------------------------------------
+def build_model():
+    inputs = Input(shape=(32, 32, 1))
+    x = Conv2D(64, (3, 3), activation='relu', padding='same')(inputs)
+    x = Conv2D(32, (3, 3), activation='relu', padding='same')(x)
+    output = Conv2D(3, (3, 3), activation='sigmoid', padding='same')(x)
+    return Model(inputs=inputs, outputs=output)
+ 
+model = build_model()
+model.compile(optimizer='adam', loss='mse')
+ 
+# Train model
+model.fit(gray_images, color_images, epochs=5, batch_size=64, verbose=1)
+ 
+# --------------------------------------------------------------
+# COLORIZATION FUNCTION
+# --------------------------------------------------------------
+def predict_color(img):
+    try:
+        if img is None:
+            return np.zeros((32, 32, 3), dtype=np.uint8)
+ 
+        # Convert image to RGB if needed
+        if img.ndim == 3 and img.shape[2] == 4:
+            img = cv2.cvtColor(img, cv2.COLOR_RGBA2RGB)
+        elif img.ndim == 2:
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+ 
+        # Grayscale and resize
+        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        gray = cv2.resize(gray, (32, 32)).reshape(1, 32, 32, 1) / 255.0
+ 
+        # Predict color
+        pred = model.predict(gray)[0]
+        return (pred * 255).astype(np.uint8)
+ 
+    except Exception as e:
+        print(f"Error during prediction: {e}")
+        return np.zeros((32, 32, 3), dtype=np.uint8)
+ 
+# --------------------------------------------------------------
+# GRADIO APP
+# --------------------------------------------------------------
+def chat_and_color(prompt, img):
+    response = f"You said: '{prompt}'. Colorized airplane"
+    return response, predict_color(img)
+ 
+# Set up UI
+demo = gr.Interface(
+    fn=chat_and_color,
+    inputs=[
+        gr.Textbox(label="Ask to colorize the Airplane"),
+        gr.Image(type="numpy", image_mode="L", label="Upload a grayscale airplane (32x32)")
+    ],
+    outputs=["text", "image"],
+    title="Airplane Colorizer (Grayscale -> Color)"
+)
+ 
+demo.launch()
